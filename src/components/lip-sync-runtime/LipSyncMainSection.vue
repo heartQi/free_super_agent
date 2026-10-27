@@ -96,7 +96,7 @@ function closeVideoPreview(): void {
         {{ isSubmitting || isPolling ? '执行中...' : '视频对口型' }}
       </button>
       <button class="secondary-button" type="button" :disabled="!isPolling && !isSubmitting" @click="stopTask">
-        停止重启
+        停止
       </button>
       <button class="secondary-button model-config-button" type="button" title="模型配置" @click="openConfigModal">
         <Setting />

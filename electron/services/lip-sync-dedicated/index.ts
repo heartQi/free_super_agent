@@ -9,7 +9,9 @@
  *        code:1 执行中（带 progress）；code:0 成功（data.result 为完整视频 URL）；code:-1 失败
  *   4. 下载 result 到本地缓存，返回 local-video:// 协议地址
  *
- * 取消：POST {baseUrl}/cancel（服务端重启容器，清空任务与显存）。
+ * 取消：本机地址会 docker stop 容器以释放显存；远端地址 POST {baseUrl}/cancel
+ * （服务端重启容器，清空任务与显存）。
+ * 本机任务结束、失败或取消后都会停掉容器，避免模型继续占着显存。
  * 支持通过 AbortSignal 在任意阶段中止本地轮询/下载。
  */
 import { join, basename } from "node:path";
@@ -17,6 +19,11 @@ import { randomUUID } from "node:crypto";
 import { app } from "electron";
 import { logInfo } from "../_shared/logger";
 import { normalizeBaseUrl } from "./config";
+import {
+  ensureLocalLipSyncReady,
+  isLoopbackBaseUrl,
+  releaseLocalLipSync,
+} from "./local-runtime";
 import type {
   DedicatedLipSyncConfig,
   DedicatedSubmitPayload,
@@ -276,6 +283,24 @@ export async function submitTask(
   const baseUrl = resolveBaseUrl(config.baseUrl);
   logInfo(LOG_TAG, `提交对口型任务: baseUrl=${baseUrl}`);
 
+  try {
+    await ensureLocalLipSyncReady(baseUrl, onStatus, signal);
+    return await runLipSyncTask(baseUrl, payload, onStatus, signal);
+  } finally {
+    if (isLoopbackBaseUrl(baseUrl)) {
+      onStatus?.("正在释放显存...");
+      await releaseLocalLipSync(baseUrl);
+      onStatus?.("显存已释放");
+    }
+  }
+}
+
+async function runLipSyncTask(
+  baseUrl: string,
+  payload: DedicatedSubmitPayload,
+  onStatus?: StatusCallback,
+  signal?: AbortSignal,
+): Promise<DedicatedTaskResult> {
   // 第一步：上传视频 + 音频，拿到服务器可用的地址
   onStatus?.("上传中...");
   const videoUrl = await uploadFile(
@@ -364,12 +389,18 @@ export async function submitTask(
 }
 
 /**
- * 取消当前任务：调用 /cancel 触发服务端重启容器（清空任务与 GPU 显存）。
- * 服务端会 kill 自身导致连接中断，属预期，静默忽略。
+ * 取消当前任务。
+ * 本机地址直接停掉容器，显存会释放，并且不会被 Docker 再拉起来。
+ * 远端地址调用 /cancel，服务端会退出并由重启策略拉起，连接中断属预期。
  */
 export async function cancelTask(baseUrl: string): Promise<void> {
   const normalized = normalizeBaseUrl(baseUrl);
   if (!normalized) return;
+
+  if (isLoopbackBaseUrl(normalized)) {
+    await releaseLocalLipSync(normalized);
+    return;
+  }
 
   try {
     await fetch(`${normalized}/cancel`, { method: "POST" });

@@ -5,14 +5,31 @@
  * - 开发时：通过 ffmpeg-static 包获取
  * - 兜底：使用系统 PATH 中的 ffmpeg
  */
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "electron";
 
-export function resolveFfmpegPath(): string {
-  if (process.env.FFMPEG_PATH) {
-    return process.env.FFMPEG_PATH;
+function isFile(filePath: string): boolean {
+  try {
+    return statSync(filePath).isFile();
+  } catch {
+    return false;
   }
+}
+
+/** 环境变量只在指向真实可执行文件时生效，过期目录会继续往下找内置 ffmpeg。 */
+function resolveEnvFfmpeg(): string | null {
+  const raw = process.env.FFMPEG_PATH?.trim();
+  if (!raw) return null;
+  if (isFile(raw)) return raw;
+
+  const nested = join(raw, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+  return isFile(nested) ? nested : null;
+}
+
+export function resolveFfmpegPath(): string {
+  const fromEnv = resolveEnvFfmpeg();
+  if (fromEnv) return fromEnv;
 
   // 打包环境
   if (app.isPackaged) {

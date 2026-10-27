@@ -17,6 +17,22 @@ import { useLipSyncDedicated } from "@/composables/lip-sync-dedicated/useLipSync
 
 let sharedRuntimeState: ReturnType<typeof useImpl> | null = null;
 
+function isLocalLipSyncUrl(raw: string): boolean {
+  const withScheme = /^https?:\/\//i.test(raw.trim())
+    ? raw.trim()
+    : `http://${raw.trim()}`;
+  try {
+    const hostname = new URL(withScheme).hostname;
+    return (
+      hostname === "127.0.0.1" ||
+      hostname === "localhost" ||
+      hostname === "::1"
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 清洗 Electron IPC 抛出的错误文案
  *
@@ -283,7 +299,7 @@ function useImpl() {
           outputUrl?: string;
           canceled?: boolean;
         };
-        // 用户主动「停止重启」：状态与提示已由 stopTask 处理，这里静默结束
+        // 用户主动停止：状态与提示已由 stopTask 处理，这里静默结束
         if (result?.canceled) {
           return;
         }
@@ -320,7 +336,7 @@ function useImpl() {
       if (isConnError) {
         taskStatus.value = "连接失败";
         ElMessage.error(
-          "无法连接到独享算力服务器，服务可能正在重启，请稍候重试",
+          "无法连接到对口型服务。本机容器可能还在启动，或已经停掉释放显存，请稍候重试",
         );
       } else {
         // 根据当前阶段显示对应的失败状态
@@ -346,10 +362,14 @@ function useImpl() {
     isSubmitting.value = false;
     taskStatus.value = "已停止";
 
-    // 通知主进程取消独享算力任务：服务端会重启容器以清空任务与显存
+    // 本机地址会停掉容器释放显存；远端地址仍由服务端重启清空任务
     await window.desktopApi.cancelLipSyncDedicatedTask().catch(() => {});
 
-    ElMessage.info("已停止，服务器正在重启，请稍候再重试");
+    ElMessage.info(
+      isLocalLipSyncUrl(dedicatedConfig.baseUrl)
+        ? "已停止，正在释放显存"
+        : "已停止，服务器正在重启，请稍候再重试",
+    );
   }
 
   function clearSelectedAudioFile(): void {

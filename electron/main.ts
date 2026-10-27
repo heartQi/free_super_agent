@@ -839,7 +839,7 @@ app.whenReady().then(() => {
           controller.signal,
         );
       } catch (error) {
-        // 用户点击「停止重启」会 abort 本次请求，服务端重启也会导致连接中断，
+        // 用户点击「停止」会 abort 本次请求，远端服务重启也会导致连接中断，
         // 这些都属预期，返回取消标记而非抛错，避免主进程打印错误日志、前端弹报错。
         if (controller.signal.aborted) {
           return { outputUrl: "", canceled: true };

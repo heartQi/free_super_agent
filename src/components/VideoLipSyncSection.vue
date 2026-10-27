@@ -180,10 +180,10 @@ async function saveConfig(): Promise<void> {
   gap: 6px;
   padding: 0 16px;
   height: 36px;
-  border: 1px solid #2a6f97;
+  border: 1px solid #1f4b99;
   border-radius: 6px;
   color: #ffffff;
-  background: #2a6f97;
+  background: #1f4b99;
   font-weight: 700;
   cursor: pointer;
 }

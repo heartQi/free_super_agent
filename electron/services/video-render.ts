@@ -14,6 +14,10 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import { app, BrowserWindow } from "electron";
+import {
+  displaySubtitleCues,
+  type SubtitleBreakMode,
+} from "../../src/lib/subtitle-layout";
 
 const execFileAsync = promisify(execFile);
 
@@ -63,6 +67,10 @@ export interface SubtitleRenderStyle {
   color: string;
   strokeSize: number;
   strokeColor: string;
+  /** 每行最多字数。未传时按画面宽度折行。 */
+  maxCharsPerLine?: number;
+  /** sentence 只在句号类标点断开，clause 逗号也断开。 */
+  breakMode?: SubtitleBreakMode;
 }
 
 export interface PipRenderItem {
@@ -131,7 +139,23 @@ function getFontFilePath(fontFileName: string): string {
     return appFontPath;
   }
 
-  // 最终兜底：返回文件名，让 ffmpeg 尝试从系统字体查找
+  const systemDirs =
+    process.platform === "win32"
+      ? [join(process.env.WINDIR || "C:\\Windows", "Fonts")]
+      : process.platform === "darwin"
+        ? [
+            "/System/Library/Fonts",
+            "/Library/Fonts",
+            join(app.getPath("home"), "Library/Fonts"),
+          ]
+        : ["/usr/share/fonts", "/usr/local/share/fonts"];
+  for (const dir of systemDirs) {
+    const systemPath = join(dir, fontFileName);
+    if (existsSync(systemPath)) {
+      return systemPath;
+    }
+  }
+
   return fontFileName;
 }
 
@@ -401,7 +425,7 @@ export async function renderVideo(
       await writeFile(coverInputPath, Buffer.from(base64Data, "base64"));
     }
 
-    // 3a. 字幕 drawtext 滤镜（支持多行：每行一个 drawtext，y 坐标逐行上移）
+    // 3a. 字幕：同一时刻只烧一屏，按句号拆开，不带标点
     const fontPath = getFontFilePath(payload.subtitleStyle.fontFileName);
     const fontColor = hexToFfmpegColor(payload.subtitleStyle.color);
     const borderColor = hexToFfmpegColor(payload.subtitleStyle.strokeColor);
@@ -413,34 +437,22 @@ export async function renderVideo(
       1,
       Math.round(payload.subtitleStyle.strokeSize * fontScale),
     );
-    // 行间距（像素）
-    const lineSpacing = Math.round(fontSize * 1.4);
+    const subtitlePages = displaySubtitleCues(payload.subtitles);
 
-    for (const subtitle of payload.subtitles) {
-      // 按换行符拆成多行
-      const lines = subtitle.text.split("\n").filter((line) => line.length > 0);
-      const totalLines = lines.length;
-
-      for (let lineIdx = 0; lineIdx < totalLines; lineIdx++) {
-        const escapedLine = escapeDrawtext(lines[lineIdx]);
-        // 从底部 20% 位置开始，多行时往上偏移
-        // 最后一行在 y=h*0.8-text_h，倒数第二行再上移 lineSpacing，以此类推
-        const lineOffset = (totalLines - 1 - lineIdx) * lineSpacing;
-        const yExpr = `h-h*0.2-text_h-${lineOffset}`;
-
-        const drawtextFilter = [
-          `drawtext=fontfile='${fontPath.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "'\\''")}'`,
-          `text='${escapedLine}'`,
-          `fontsize=${fontSize}`,
-          `fontcolor=${fontColor}`,
-          `borderw=${borderW}`,
-          `bordercolor=${borderColor}`,
-          `x=(w-text_w)/2`,
-          `y=${yExpr}`,
-          `enable='between(t,${subtitle.start.toFixed(3)},${subtitle.end.toFixed(3)})'`,
-        ].join(":");
-        filterParts.push(drawtextFilter);
-      }
+    for (const subtitle of subtitlePages) {
+      const escapedLine = escapeDrawtext(subtitle.text);
+      const drawtextFilter = [
+        `drawtext=fontfile='${fontPath.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "'\\''")}'`,
+        `text='${escapedLine}'`,
+        `fontsize=${fontSize}`,
+        `fontcolor=${fontColor}`,
+        `borderw=${borderW}`,
+        `bordercolor=${borderColor}`,
+        `x=(w-text_w)/2`,
+        `y=h-h*0.2-text_h`,
+        `enable='between(t,${subtitle.start.toFixed(3)},${subtitle.end.toFixed(3)})'`,
+      ].join(":");
+      filterParts.push(drawtextFilter);
     }
 
     // 3b. 画中画 overlay 滤镜

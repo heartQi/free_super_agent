@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Stopwatch } from '@element-plus/icons-vue'
-import { ElDivider } from 'element-plus'
+import { ElDivider, ElMessage } from 'element-plus'
 import { ref } from 'vue'
 import { useCopyCreation } from '@/composables/useCopyCreation'
 import { useDouyinExtraction } from '@/composables/useDouyinExtraction'
@@ -25,6 +25,28 @@ const {
 } = useCopyCreation()
 
 const isVideoPreviewOpen = ref(false)
+const copyFileInput = ref<HTMLInputElement | null>(null)
+
+function openCopyImport(): void {
+  if (copyFileInput.value) {
+    copyFileInput.value.value = ''
+    copyFileInput.value.click()
+  }
+}
+
+function onCopyFileSelected(event: Event): void {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    createdCopy.value = String(reader.result ?? '')
+    ElMessage.success('已导入文案')
+  }
+  reader.onerror = () => {
+    ElMessage.error('文案读取失败，请重新选择')
+  }
+  reader.readAsText(file)
+}
 
 function openVideoPreview(): void {
   if (!extractedVideoUrl.value) {
@@ -96,11 +118,23 @@ function closeVideoPreview(): void {
         <section class="result-panel copy-panel created-copy-panel">
           <div class="result-title-row">
             <h3>文案创作</h3>
-            <span class="elapsed-badge" aria-label="创作耗时">
-              <Stopwatch class="elapsed-icon" aria-hidden="true" />
-              {{ creationElapsedText }}
-            </span>
+            <div class="title-actions">
+              <button class="secondary-button import-copy-button" type="button" @click="openCopyImport">
+                导入文案
+              </button>
+              <span class="elapsed-badge" aria-label="创作耗时">
+                <Stopwatch class="elapsed-icon" aria-hidden="true" />
+                {{ creationElapsedText }}
+              </span>
+            </div>
           </div>
+          <input
+            ref="copyFileInput"
+            class="hidden-file-input"
+            type="file"
+            accept=".txt,text/plain"
+            @change="onCopyFileSelected"
+          />
           <textarea v-model="createdCopy" rows="8" placeholder="创造完成后显示文案，可在这里修改"></textarea>
         </section>
       </section>
@@ -191,8 +225,8 @@ function closeVideoPreview(): void {
 }
 
 .tool-field>input:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .tool-field>textarea {
@@ -215,8 +249,8 @@ function closeVideoPreview(): void {
 }
 
 .tool-field>textarea:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .copy-creation-tool {
@@ -295,7 +329,7 @@ function closeVideoPreview(): void {
   flex: 0 0 auto;
   padding: 0;
   border: 0;
-  color: #2a6f97;
+  color: #1f4b99;
   background: transparent;
   font-size: 12px;
   font-weight: 700;
@@ -303,7 +337,7 @@ function closeVideoPreview(): void {
 }
 
 .text-link-button:hover:not(:disabled) {
-  color: #235e80;
+  color: #183d7a;
   text-decoration: underline;
 }
 
@@ -358,8 +392,8 @@ function closeVideoPreview(): void {
 }
 
 .copy-panel textarea:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .copy-creation-tool .result-panel {
@@ -378,6 +412,16 @@ function closeVideoPreview(): void {
 
 .created-copy-panel textarea {
   height: 100%;
+}
+
+.import-copy-button {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.hidden-file-input {
+  display: none;
 }
 
 .modal-backdrop {
@@ -445,8 +489,8 @@ function closeVideoPreview(): void {
 }
 
 .provider-select-field select:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .config-field {
@@ -475,8 +519,8 @@ function closeVideoPreview(): void {
 
 .config-field input:focus,
 .config-field select:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .config-tip {
@@ -487,7 +531,7 @@ function closeVideoPreview(): void {
 }
 
 .config-tip a {
-  color: #2a6f97;
+  color: #1f4b99;
 }
 
 
@@ -541,8 +585,8 @@ function closeVideoPreview(): void {
 }
 
 .field input:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .field input[readonly]:focus {

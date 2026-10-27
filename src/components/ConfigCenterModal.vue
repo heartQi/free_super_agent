@@ -55,7 +55,7 @@ const isQuotaLow = computed(() => hasQuota.value && quotaPercent.value < 20)
             <div class="cc-badge" :class="{ ready: isReady }">
               <component :is="isAuthorizing ? Loading : Select" :class="{ spin: isAuthorizing }" />
             </div>
-            <h2 id="cc-title" class="cc-title">配置中心</h2>
+            <h2 id="cc-title" class="cc-title">登录</h2>
             <p class="cc-status" :class="{ ready: isReady }">
               {{ isReady ? '已授权 · 全部功能就绪' : '未授权 · 请授权登录' }}
             </p>
@@ -169,7 +169,7 @@ const isQuotaLow = computed(() => hasQuota.value && quotaPercent.value < 20)
   padding: 40px 32px 24px;
   border-radius: 18px;
   background: linear-gradient(180deg, #ffffff 0%, #f7fafc 100%);
-  border: 1px solid rgba(42, 111, 151, 0.12);
+  border: 1px solid rgba(31, 75, 153, 0.12);
   box-shadow: 0 30px 80px rgba(15, 23, 42, 0.3);
   text-align: center;
 }
@@ -301,7 +301,7 @@ const isQuotaLow = computed(() => hasQuota.value && quotaPercent.value < 20)
 }
 
 .cc-quota-refresh:hover:not(:disabled) {
-  color: #2a6f97;
+  color: #1f4b99;
   background: #e1edf6;
 }
 
@@ -324,7 +324,7 @@ const isQuotaLow = computed(() => hasQuota.value && quotaPercent.value < 20)
   display: flex;
   align-items: baseline;
   gap: 5px;
-  color: #2a6f97;
+  color: #1f4b99;
 }
 
 /* 剩余数与总数保持同一字号，整体偏小 */
@@ -384,7 +384,7 @@ const isQuotaLow = computed(() => hasQuota.value && quotaPercent.value < 20)
 }
 
 .cc-hl {
-  color: #2a6f97;
+  color: #1f4b99;
   font-weight: 700;
 }
 
@@ -403,18 +403,18 @@ const isQuotaLow = computed(() => hasQuota.value && quotaPercent.value < 20)
   border: 0;
   border-radius: 10px;
   color: #ffffff;
-  background: linear-gradient(135deg, #2a6f97 0%, #3c8c72 100%);
+  background: linear-gradient(135deg, #1f4b99 0%, #1f4b99 100%);
   font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.5px;
   cursor: pointer;
-  box-shadow: 0 8px 20px rgba(42, 111, 151, 0.28);
+  box-shadow: 0 8px 20px rgba(31, 75, 153, 0.28);
   transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
 }
 
 .cc-primary:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 12px 26px rgba(42, 111, 151, 0.34);
+  box-shadow: 0 12px 26px rgba(31, 75, 153, 0.34);
 }
 
 .cc-primary:disabled {
@@ -452,7 +452,7 @@ const isQuotaLow = computed(() => hasQuota.value && quotaPercent.value < 20)
 }
 
 .cc-btn-accent {
-  color: #2a6f97;
+  color: #1f4b99;
   background: #eef5fb;
   border-color: #d5e6f2;
 }
@@ -481,7 +481,7 @@ const isQuotaLow = computed(() => hasQuota.value && quotaPercent.value < 20)
 }
 
 .cc-foot a {
-  color: #2a6f97;
+  color: #1f4b99;
   font-weight: 700;
   text-decoration: none;
 }

@@ -1,14 +1,60 @@
 <script setup lang="ts">
 import { ElDivider, ElMessage } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useSubtitleRecognition } from '@/composables/useSubtitleRecognition'
+import { registerOneClickExport } from '@/composables/useOneClickCompose'
+import { useCopyCreation } from '@/composables/useCopyCreation'
+import { useDouyinExtraction } from '@/composables/useDouyinExtraction'
 import { usePictureInPicture } from '@/composables/usePictureInPicture'
-import { SUBTITLE_FONT_OPTIONS, getSubtitleFontOption } from '@/config/subtitle-fonts'
+import { useSubtitleRecognition } from '@/composables/useSubtitleRecognition'
+import { useVoiceCloneActive } from '@/composables/useVoiceClone'
+import { SUBTITLE_FONT_OPTIONS, getSubtitleFontOption, subtitleFontFaceCss } from '@/config/subtitle-fonts'
 
-const {
-  effectiveVideoSourceUrl,
-  subtitleList
-} = useSubtitleRecognition()
+const { effectiveVideoSourceUrl, subtitleList } = useSubtitleRecognition()
+const { extractedCopy } = useDouyinExtraction()
+const { createdCopy } = useCopyCreation()
+const { synthesizedAudioUrl } = useVoiceCloneActive()
+const exportSettingsKey = 'free-super-agent.export-settings'
+const exportFolderName = ref('渲染导出')
+const exportDir = ref('')
+
+function loadExportSettings(): void {
+  try {
+    const raw = window.localStorage.getItem(exportSettingsKey)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as { exportDir?: string; folderName?: string }
+    if (typeof parsed.exportDir === 'string') exportDir.value = parsed.exportDir
+    if (typeof parsed.folderName === 'string' && parsed.folderName.trim()) {
+      exportFolderName.value = parsed.folderName
+    }
+  } catch {
+    window.localStorage.removeItem(exportSettingsKey)
+  }
+}
+
+loadExportSettings()
+
+watch([exportDir, exportFolderName], () => {
+  window.localStorage.setItem(
+    exportSettingsKey,
+    JSON.stringify({
+      exportDir: exportDir.value,
+      folderName: exportFolderName.value
+    })
+  )
+})
+
+async function handlePickExportDir(): Promise<void> {
+  if (typeof window.desktopApi.selectDirectory !== 'function') {
+    ElMessage.error('选择文件夹还没加载，请完全退出应用后重新打开')
+    return
+  }
+  try {
+    const selected = await window.desktopApi.selectDirectory()
+    if (selected) exportDir.value = selected
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '无法打开文件夹选择')
+  }
+}
 
 const { assets: pipAssets } = usePictureInPicture()
 
@@ -21,6 +67,7 @@ function readSubtitleStyle() {
     return JSON.parse(stored) as Partial<{
       fontId: string; fontSize: number; fontColor: string
       strokeSize: number; strokeColor: string
+      maxCharsPerLine: number; breakMode: 'sentence' | 'clause'
     }>
   } catch { return null }
 }
@@ -38,14 +85,19 @@ const renderSuccess = ref(false)
 let unsubscribeProgress: (() => void) | null = null
 
 onMounted(() => {
-  if (!document.querySelector('style[data-cover-fonts="true"]')) {
-    const styleEl = document.createElement('style')
+  registerOneClickExport(async () => {
+    renderSuccess.value = false
+    await handleExportAll()
+    return renderSuccess.value
+  })
+
+  const existing = document.querySelector('style[data-cover-fonts="true"]')
+  const styleEl = existing instanceof HTMLStyleElement ? existing : document.createElement('style')
+  if (!existing) {
     styleEl.dataset.coverFonts = 'true'
-    styleEl.textContent = SUBTITLE_FONT_OPTIONS.map((f) =>
-      `@font-face { font-family: '${f.fontFamily}'; src: url('${f.url}'); font-display: swap; }`
-    ).join('\n')
     document.head.appendChild(styleEl)
   }
+  styleEl.textContent = SUBTITLE_FONT_OPTIONS.map((font) => subtitleFontFaceCss(font)).join('\n')
 
   // 进入本步骤时若已有视频（上游步骤先完成），立即生成时间轴缩略图与封面帧
   if (hasVideo.value) {
@@ -55,6 +107,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  registerOneClickExport(null)
   unsubscribeProgress?.()
   unsubscribeProgress = null
   if (captureTimer) {
@@ -122,7 +175,9 @@ async function handleExportAll(): Promise<void> {
             fontSize: style?.fontSize ?? 10,
             color: style?.fontColor ?? '#ffffff',
             strokeSize: style?.strokeSize ?? 0,
-            strokeColor: style?.strokeColor ?? '#000000'
+            strokeColor: style?.strokeColor ?? '#000000',
+            maxCharsPerLine: style?.maxCharsPerLine ?? 14,
+            breakMode: style?.breakMode === 'clause' ? 'clause' : 'sentence'
           },
           pipItems,
           outputPath: ''
@@ -143,7 +198,12 @@ async function handleExportAll(): Promise<void> {
         sourceVideoUrl: videoUrl,
         videoPayload: videoPayload ?? undefined,
         coverBase64: composedCoverDataUrl ?? undefined,
-        coverFileName: composedCoverDataUrl ? `封面_${ts}.jpg` : undefined
+        coverFileName: composedCoverDataUrl ? `封面_${ts}.jpg` : undefined,
+        folderName: exportFolderName.value,
+        exportDir: exportDir.value,
+        extractedCopy: extractedCopy.value,
+        createdCopy: createdCopy.value,
+        audioUrl: synthesizedAudioUrl.value,
       }))
     ) as { success: boolean; canceled?: boolean; outputDir?: string; error?: string }
 
@@ -488,7 +548,7 @@ async function buildCoverDataUrl(): Promise<string | null> {
   } else if (style === 'center-emphasis') {
     drawBand(['rgba(26,26,46,0.94)', 'rgba(45,45,78,0.90)'], '#00b894')
   } else {
-    drawBand(['rgba(26,58,92,0.92)', 'rgba(42,111,151,0.85)'], '#ff6b2b')
+    drawBand(['rgba(26,58,92,0.92)', 'rgba(31, 75, 153,0.85)'], '#ff6b2b')
   }
 
   return canvas.toDataURL('image/jpeg', 0.95)
@@ -521,7 +581,7 @@ async function buildCoverDataUrl(): Promise<string | null> {
             <!-- 选中标识 -->
             <div v-if="selectedStyleId === style.id" class="cover-style-selected-badge">
               <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="8" cy="8" r="8" fill="#2a6f97"/>
+                <circle cx="8" cy="8" r="8" fill="#1f4b99"/>
                 <path d="M4.5 8.5l2.5 2.5 4.5-5" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </div>
@@ -625,6 +685,32 @@ async function buildCoverDataUrl(): Promise<string | null> {
 
       <el-divider class="step-divider">第七步：导出</el-divider>
 
+      <div class="export-setting-row">
+        <span class="cover-field-label">导出位置</span>
+        <div class="export-path-row">
+          <input
+            v-model="exportDir"
+            class="cover-input"
+            type="text"
+            placeholder="留空则使用下载文件夹"
+          />
+          <button class="export-path-button" type="button" @click="handlePickExportDir">
+            选择
+          </button>
+        </div>
+      </div>
+
+      <label class="export-setting-row">
+        <span class="cover-field-label">文件名</span>
+        <input
+          v-model="exportFolderName"
+          class="cover-input"
+          type="text"
+          maxlength="80"
+          placeholder="渲染导出"
+        />
+      </label>
+
       <section class="render-section">
         <button
           class="primary-button render-video-button"
@@ -664,22 +750,6 @@ async function buildCoverDataUrl(): Promise<string | null> {
 
         <div v-if="renderSuccess && !isRendering" class="render-success-area" style="display:none"></div>
       </section>
-
-      <!-- 内测说明与联系方式（原顶部横幅移至此处） -->
-      <div class="beta-notice">
-        <p class="beta-title">🧪 联系作者</p>
-        <p class="beta-desc">欢迎反馈Bug与建议，帮助我们持续优化。</p>
-        <p class="beta-contact">作者：武沛齐</p>
-        <p class="beta-contact">微信：<span class="beta-wechat">wupeiqi5555</span></p>
-        <p class="beta-contact">
-          官方：<a
-            class="beta-link"
-            href="https://github.com/wupeiqi/free_super_agent"
-            target="_blank"
-            rel="noreferrer"
-          >https://github.com/wupeiqi/free_super_agent</a>
-        </p>
-      </div>
     </div>
 
   </article>
@@ -767,7 +837,7 @@ async function buildCoverDataUrl(): Promise<string | null> {
 .render-progress-fill {
   height: 100%;
   border-radius: 3px;
-  background: linear-gradient(90deg, #2a6f97, #38bdf8);
+  background: linear-gradient(90deg, #1f4b99, #38bdf8);
   transition: width 0.6s ease;
 }
 
@@ -778,7 +848,7 @@ async function buildCoverDataUrl(): Promise<string | null> {
 }
 
 .render-progress-percent {
-  color: #2a6f97;
+  color: #1f4b99;
   font-size: 13px;
   font-weight: 700;
 }
@@ -790,53 +860,6 @@ async function buildCoverDataUrl(): Promise<string | null> {
 
 .render-success-area {
   display: none;
-}
-
-/* 内测说明：高度跟随内容，不再撑满本列剩余空间 */
-.beta-notice {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  /* gap 控制每行之间的间距 */
-  gap: 7px;
-  margin-top: 12px;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 152, 0, 0.25);
-  border-radius: 8px;
-  background: rgba(255, 243, 224, 0.85);
-  color: #5d4e37;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.beta-title {
-  margin: 0;
-  color: #e65100;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.beta-desc {
-  margin: 0;
-  color: #6d5e48;
-}
-
-.beta-contact {
-  margin: 0;
-}
-
-.beta-wechat {
-  font-weight: 600;
-  color: #2a6f97;
-}
-
-/* 官方仓库链接：点击后由主进程用系统浏览器打开
- * 沿用正文颜色，仅用下划线表示可点击，视觉重点留给微信号 */
-.beta-link {
-  color: inherit;
-  font-weight: inherit;
-  text-decoration: underline;
-  word-break: break-all;
 }
 
 .render-success-row {
@@ -865,8 +888,8 @@ async function buildCoverDataUrl(): Promise<string | null> {
 }
 
 .render-open-folder:hover {
-  border-color: #2a6f97;
-  color: #2a6f97;
+  border-color: #1f4b99;
+  color: #1f4b99;
   background: #f2f7fb;
 }
 
@@ -876,10 +899,10 @@ async function buildCoverDataUrl(): Promise<string | null> {
   justify-content: center;
   gap: 6px;
   padding: 0 16px;
-  border: 1px solid #2a6f97;
+  border: 1px solid #1f4b99;
   border-radius: 6px;
   color: #ffffff;
-  background: #2a6f97;
+  background: #1f4b99;
   font-weight: 700;
   cursor: pointer;
 }
@@ -910,8 +933,8 @@ async function buildCoverDataUrl(): Promise<string | null> {
 }
 
 .cover-style-preview-card.is-active {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 2px rgba(42, 111, 151, 0.18);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 2px rgba(31, 75, 153, 0.18);
 }
 
 .cover-style-preview-inner {
@@ -990,7 +1013,7 @@ async function buildCoverDataUrl(): Promise<string | null> {
 
 /* 预设3：蓝调渐变（原有） */
 .cover-style3-band {
-  background: linear-gradient(90deg, rgba(26,58,92,0.92) 0%, rgba(42,111,151,0.85) 100%);
+  background: linear-gradient(90deg, rgba(26,58,92,0.92) 0%, rgba(31, 75, 153,0.85) 100%);
 }
 .cover-style3-accent {
   flex: 0 0 4px;
@@ -1037,7 +1060,7 @@ async function buildCoverDataUrl(): Promise<string | null> {
 
 .cover-timeline-time {
   margin-left: auto;
-  color: #2a6f97;
+  color: #1f4b99;
   font-size: 11px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -1057,8 +1080,8 @@ async function buildCoverDataUrl(): Promise<string | null> {
 
 .cover-timeline:focus-visible {
   outline: none;
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.22);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.22);
 }
 
 .cover-timeline.is-disabled {
@@ -1108,12 +1131,49 @@ async function buildCoverDataUrl(): Promise<string | null> {
 .cover-capture-button { height: 34px; font-size: 13px; }
 
 .cover-capturing-hint {
-  color: #2a6f97;
+  color: #1f4b99;
   font-size: 11px;
   font-weight: 400;
 }
 
 .cover-field { display: grid; gap: 6px; }
+
+.export-setting-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.export-setting-row .cover-field-label {
+  justify-content: flex-start;
+  white-space: nowrap;
+}
+
+.export-path-row {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.export-path-row .cover-input {
+  flex: 1;
+  min-width: 0;
+}
+.export-path-button {
+  flex: none;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f4b99;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.export-path-button:hover {
+  border-color: #1f4b99;
+  background: #f2f7fb;
+}
 
 .cover-field-label {
   display: flex; align-items: center; justify-content: space-between;
@@ -1126,7 +1186,7 @@ async function buildCoverDataUrl(): Promise<string | null> {
   color: #475569; background: #ffffff;
   font-size: 11px; font-weight: 700; cursor: pointer;
 }
-.cover-auto-btn:hover { border-color: #2a6f97; color: #2a6f97; background: #f2f7fb; }
+.cover-auto-btn:hover { border-color: #1f4b99; color: #1f4b99; background: #f2f7fb; }
 
 .cover-font-row {
   display: grid;
@@ -1150,7 +1210,7 @@ async function buildCoverDataUrl(): Promise<string | null> {
   border: 1px solid #cbd5e1; border-radius: 6px;
   color: #172033; background: #ffffff; font-size: 12px; outline: none;
 }
-.cover-input:focus { border-color: #2a6f97; box-shadow: 0 0 0 3px rgba(42,111,151,0.12); }
+.cover-input:focus { border-color: #1f4b99; box-shadow: 0 0 0 3px rgba(31, 75, 153,0.12); }
 
 .cover-title-textarea {
   height: auto;
@@ -1168,12 +1228,12 @@ async function buildCoverDataUrl(): Promise<string | null> {
   font-family: inherit; font-size: 12px; line-height: 1.5;
   outline: none; resize: none;
 }
-.cover-textarea:focus { border-color: #2a6f97; box-shadow: 0 0 0 3px rgba(42,111,151,0.12); }
+.cover-textarea:focus { border-color: #1f4b99; box-shadow: 0 0 0 3px rgba(31, 75, 153,0.12); }
 
 .cover-export-button {
   width: 100%; height: 36px; font-size: 13px; font-weight: 700;
-  border: 1px solid #2a6f97; border-radius: 6px;
-  color: #ffffff; background: #2a6f97; cursor: pointer;
+  border: 1px solid #1f4b99; border-radius: 6px;
+  color: #ffffff; background: #1f4b99; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
 }
 .cover-export-button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -1191,6 +1251,6 @@ async function buildCoverDataUrl(): Promise<string | null> {
   font-size: 13px; font-weight: 700; cursor: pointer;
   transition: border-color 0.18s ease, color 0.18s ease;
 }
-.secondary-button:hover:not(:disabled) { border-color: #2a6f97; color: #2a6f97; background: #f2f7fb; }
+.secondary-button:hover:not(:disabled) { border-color: #1f4b99; color: #1f4b99; background: #f2f7fb; }
 .secondary-button:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

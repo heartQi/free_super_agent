@@ -2,25 +2,30 @@
  * 模力方舟平台字幕识别服务（OpenAI 兼容 API）
  *
  * 调用端点：https://api.moark.com/v1/audio/transcriptions
- * 模型：whisper-large-v3
- *
- * 采用「句子级别（segment）」时间戳：直接使用接口返回的 segments，
- * 每个 segment 即一条字幕，start/end 为接口给出的真实时间，不做二次切分/插值。
+ * 模型：whisper-large-v3，失败时改用 whisper-large-v3-turbo。
+ * 音频会先转成 16kHz 单声道 mp3，再按官方字段提交（model、language、file）。
  *
  * 音频来源可能是远程 URL 或本地文件路径：
  *   - 远程 URL：主进程先下载为 Buffer，再以 multipart/form-data 形式提交
  *   - 本地路径：主进程直接读取文件后提交
  */
-import { readFile } from "node:fs/promises";
-import { basename } from "node:path";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
+import { promisify } from "node:util";
+import { resolveFfmpegPath } from "./_shared/ffmpeg-path";
 
 import type {
   SubtitleRecognitionResult,
   SubtitleSegment,
 } from "./subtitle-recognition";
 
+const execFileAsync = promisify(execFile);
+
 const MOARK_BASE_URL = "https://api.moark.com/v1";
 const DEFAULT_MODEL = "whisper-large-v3";
+const FALLBACK_MODEL = "whisper-large-v3-turbo";
 
 interface MoarkTranscriptionSegment {
   id: number;
@@ -30,11 +35,20 @@ interface MoarkTranscriptionSegment {
   [key: string]: unknown;
 }
 
+interface MoarkTranscriptionChunk {
+  text?: string;
+  start?: number;
+  end?: number;
+  timestamp?: Array<number | null>;
+  timestamps?: Array<number | null>;
+}
+
 interface MoarkTranscriptionResponse {
   duration?: string | number;
   language?: string;
   text?: string;
   segments?: MoarkTranscriptionSegment[];
+  chunks?: MoarkTranscriptionChunk[];
   [key: string]: unknown;
 }
 
@@ -67,65 +81,88 @@ async function readLocalAudioBuffer(
   return { buffer, fileName };
 }
 
-/**
- * 构建 multipart/form-data 的 Boundary 和 Body
- */
-function buildMultipartFormData(
-  audioBuffer: Buffer,
-  fileName: string,
-  model: string,
-): { boundary: string; body: Buffer } {
-  const boundary = `----FormBoundary${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
-  const crlf = "\r\n";
-
-  // 根据文件扩展名确定 MIME 类型
-  const ext = fileName.split(".").pop()?.toLowerCase() || "mp3";
-  const mimeMap: Record<string, string> = {
-    mp3: "audio/mpeg",
-    wav: "audio/wav",
-    m4a: "audio/mp4",
-    ogg: "audio/ogg",
-    flac: "audio/flac",
-    webm: "audio/webm",
-  };
-  const mimeType = mimeMap[ext] || "audio/mpeg";
-
-  const fields: Array<{ name: string; value: string }> = [
-    { name: "model", value: model },
-    { name: "language", value: "zh" },
-    { name: "response_format", value: "verbose_json" },
-    // 句子级别时间戳（字段名不带 []，模力方舟只认 timestamp_granularities）
-    { name: "timestamp_granularities", value: "segment" },
-    { name: "temperature", value: "0.7" },
-  ];
-
-  const parts: Buffer[] = [];
-
-  // 文本字段
-  for (const field of fields) {
-    parts.push(
-      Buffer.from(
-        `--${boundary}${crlf}Content-Disposition: form-data; name="${field.name}"${crlf}${crlf}${field.value}${crlf}`,
-      ),
-    );
+function parseDurationSeconds(ffmpegStderr: string): number {
+  const match = ffmpegStderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+  if (!match) {
+    return 0;
   }
 
-  // 文件字段
-  parts.push(
-    Buffer.from(
-      `--${boundary}${crlf}Content-Disposition: form-data; name="file"; filename="${fileName}"${crlf}Content-Type: ${mimeType}${crlf}${crlf}`,
-    ),
+  return (
+    Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])
   );
-  parts.push(audioBuffer);
-  parts.push(Buffer.from(`${crlf}--${boundary}--${crlf}`));
-
-  return { boundary, body: Buffer.concat(parts) };
 }
 
-function bufferToArrayBuffer(buffer: Buffer): ArrayBuffer {
-  const arrayBuffer = new ArrayBuffer(buffer.byteLength);
-  new Uint8Array(arrayBuffer).set(buffer);
-  return arrayBuffer;
+/**
+ * 合成音频的扩展名是按下载地址猜的，内容和扩展名经常对不上。
+ * 先转成 16kHz 单声道 mp3，避免识别服务把异常音频当成内部错误。
+ */
+async function transcodeToMp3(
+  audioBuffer: Buffer,
+): Promise<{ buffer: Buffer; durationSec: number }> {
+  const dir = await mkdtemp(join(tmpdir(), "subtitle-asr-"));
+  const inputPath = join(dir, "input.bin");
+  const outputPath = join(dir, "audio.mp3");
+
+  try {
+    await writeFile(inputPath, audioBuffer);
+    const { stderr } = await execFileAsync(
+      resolveFfmpegPath(),
+      [
+        "-y",
+        "-i",
+        inputPath,
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-b:a",
+        "64k",
+        outputPath,
+      ],
+      { encoding: "utf8", windowsHide: true },
+    );
+    const buffer = await readFile(outputPath);
+    if (buffer.length < 1024) {
+      throw new Error("音频转码结果为空");
+    }
+
+    return {
+      buffer,
+      durationSec: parseDurationSeconds(String(stderr ?? "")),
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function requestTranscription(
+  apiKey: string,
+  audioBuffer: Buffer,
+  model: string,
+  verbose: boolean,
+  signal: AbortSignal,
+): Promise<Response> {
+  const formData = new FormData();
+  formData.append(
+    "file",
+    new Blob([audioBuffer], { type: "audio/mpeg" }),
+    "audio.mp3",
+  );
+  formData.append("model", model);
+  formData.append("language", "zh");
+  if (verbose) {
+    formData.append("response_format", "verbose_json");
+  }
+
+  return fetch(`${MOARK_BASE_URL}/audio/transcriptions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: formData,
+    signal,
+  });
 }
 
 /**
@@ -141,74 +178,99 @@ export async function recognizeMoarkSubtitles(
   signal: AbortSignal,
   modelName?: string,
 ): Promise<SubtitleRecognitionResult> {
-  // 获取音频 Buffer
   let audioBuffer: Buffer;
-  let fileName: string;
 
   if (audioSource.startsWith("local-audio://synthesized/")) {
-    // 本地缓存的合成音频
-    const { join, basename } = await import("node:path");
+    const { join: joinPath, basename: baseName } = await import("node:path");
     const { app } = await import("electron");
-    const decodedName = basename(
+    const decodedName = baseName(
       decodeURIComponent(new URL(audioSource).pathname.replace(/^\/+/, "")),
     );
-    const filePath = join(
+    const filePath = joinPath(
       app.getPath("temp"),
       "free-super-agent",
       "synthesized-audio",
       decodedName,
     );
     audioBuffer = await readFile(filePath);
-    fileName = decodedName;
   } else if (/^https?:\/\//i.test(audioSource)) {
-    const downloaded = await downloadAudioBuffer(audioSource, signal);
-    audioBuffer = downloaded.buffer;
-    fileName = downloaded.fileName;
+    audioBuffer = (await downloadAudioBuffer(audioSource, signal)).buffer;
   } else {
-    const local = await readLocalAudioBuffer(audioSource);
-    audioBuffer = local.buffer;
-    fileName = local.fileName;
+    audioBuffer = (await readLocalAudioBuffer(audioSource)).buffer;
   }
 
-  // 构建 multipart body
-  const { boundary, body } = buildMultipartFormData(
-    audioBuffer,
-    fileName,
-    modelName?.trim() || DEFAULT_MODEL,
-  );
+  if (audioBuffer.length < 1024) {
+    throw new Error("音频文件过小，无法识别字幕");
+  }
 
-  // 发送请求
-  const response = await fetch(`${MOARK_BASE_URL}/audio/transcriptions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": `multipart/form-data; boundary=${boundary}`,
-    },
-    body: bufferToArrayBuffer(body),
-    signal,
-  });
+  let prepared: { buffer: Buffer; durationSec: number };
+  try {
+    prepared = await transcodeToMp3(audioBuffer);
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
+    throw new Error("音频转码失败，无法识别字幕");
+  }
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
+  const model = modelName?.trim() || DEFAULT_MODEL;
+  const attempts: Array<{ model: string; verbose: boolean }> = [
+    { model, verbose: true },
+    { model, verbose: false },
+  ];
+  if (model !== FALLBACK_MODEL) {
+    attempts.push({ model: FALLBACK_MODEL, verbose: true });
+    attempts.push({ model: FALLBACK_MODEL, verbose: false });
+  }
+
+  let response: Response | undefined;
+  let lastError = "";
+  for (const attempt of attempts) {
+    response = await requestTranscription(
+      apiKey,
+      prepared.buffer,
+      attempt.model,
+      attempt.verbose,
+      signal,
+    );
+    if (response.ok) {
+      break;
+    }
+    lastError = await response.text().catch(() => "");
+    if (response.status !== 500 && response.status !== 400) {
+      break;
+    }
+  }
+
+  if (!response?.ok) {
+    if (response?.status === 401) {
+      throw new Error("模力方舟 API Key 无效或已过期，请重新登录");
+    }
+    const detail = lastError.includes("unexpected error")
+      ? ""
+      : lastError.replace(/\s+/g, " ").slice(0, 180);
     throw new Error(
-      `模力方舟字幕识别失败: ${response.status} ${errorText || response.statusText}`,
+      detail
+        ? `模力方舟字幕识别失败（${response?.status ?? 500}）：${detail}`
+        : "模力方舟字幕识别失败，服务暂时无法处理这段音频，请稍后重试",
     );
   }
 
   const data = (await response.json()) as MoarkTranscriptionResponse;
+  let subtitles = readSubtitleSegments(data);
+  const fullText =
+    typeof data.text === "string"
+      ? data.text.trim()
+      : subtitles.map((item) => item.text).join("");
 
-  // 句子级别：直接使用接口返回的 segments，每段即一条字幕
-  const segments = Array.isArray(data.segments) ? data.segments : [];
-  const subtitles: SubtitleSegment[] = segments
-    .map((seg, index) => ({
-      id: `segment-${index + 1}`,
-      start: typeof seg.start === "number" ? seg.start : 0,
-      end: typeof seg.end === "number" ? seg.end : 0,
-      text: typeof seg.text === "string" ? seg.text.trim() : "",
-    }))
-    .filter((item) => item.text);
+  if (subtitles.length === 0 && fullText) {
+    subtitles = splitTextToSubtitles(fullText, prepared.durationSec);
+  }
 
-  // 生成 SRT 格式
+  if (subtitles.length === 0) {
+    throw new Error("模力方舟转写结果为空");
+  }
+
   const srt = subtitles
     .map((item, index) => {
       const startTime = formatSrtTime(item.start);
@@ -216,11 +278,6 @@ export async function recognizeMoarkSubtitles(
       return `${index + 1}\n${startTime} --> ${endTime}\n${item.text}\n`;
     })
     .join("\n");
-
-  const fullText =
-    typeof data.text === "string"
-      ? data.text
-      : subtitles.map((s) => s.text).join("");
 
   return {
     executionTimeMs: 0,
@@ -230,6 +287,76 @@ export async function recognizeMoarkSubtitles(
     subtitles,
     text: fullText,
   };
+}
+
+function readTimePair(value: Array<number | null> | undefined): {
+  start: number;
+  end: number;
+} | null {
+  if (!value || value.length === 0) {
+    return null;
+  }
+  const start = typeof value[0] === "number" ? value[0] : 0;
+  const end = typeof value[1] === "number" ? value[1] : start;
+  return { start, end };
+}
+
+function readSubtitleSegments(
+  data: MoarkTranscriptionResponse,
+): SubtitleSegment[] {
+  if (Array.isArray(data.segments) && data.segments.length > 0) {
+    return data.segments
+      .map((seg, index) => ({
+        id: `segment-${index + 1}`,
+        start: typeof seg.start === "number" ? seg.start : 0,
+        end: typeof seg.end === "number" ? seg.end : 0,
+        text: typeof seg.text === "string" ? seg.text.trim() : "",
+      }))
+      .filter((item) => item.text);
+  }
+
+  if (!Array.isArray(data.chunks)) {
+    return [];
+  }
+
+  return data.chunks
+    .map((chunk, index) => {
+      const pair =
+        readTimePair(chunk.timestamp) ?? readTimePair(chunk.timestamps);
+      return {
+        id: `segment-${index + 1}`,
+        start:
+          pair?.start ?? (typeof chunk.start === "number" ? chunk.start : 0),
+        end: pair?.end ?? (typeof chunk.end === "number" ? chunk.end : 0),
+        text: typeof chunk.text === "string" ? chunk.text.trim() : "",
+      };
+    })
+    .filter((item) => item.text);
+}
+
+function splitTextToSubtitles(
+  text: string,
+  durationSec: number,
+): SubtitleSegment[] {
+  const pieces = text
+    .split(/(?<=[。！？!?；;\n])/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const lines = pieces.length > 0 ? pieces : [text.trim()].filter(Boolean);
+  if (lines.length === 0) {
+    return [];
+  }
+
+  const total = Math.max(durationSec, lines.length * 0.4);
+  const slice = total / lines.length;
+  return lines.map((line, index) => ({
+    id: `segment-${index + 1}`,
+    start: Number((index * slice).toFixed(3)),
+    end: Number(
+      (index === lines.length - 1 ? total : (index + 1) * slice).toFixed(3),
+    ),
+    text: line,
+  }));
 }
 
 /**

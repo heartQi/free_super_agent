@@ -205,14 +205,14 @@ function closeVideoPreview(): void {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #2a6f97;
+  color: #1f4b99;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .replace-action:hover {
-  color: #235e80;
+  color: #183d7a;
   text-decoration: underline;
 }
 
@@ -256,7 +256,7 @@ function closeVideoPreview(): void {
 }
 
 .media-upload-action:hover {
-  border-color: #2a6f97;
+  border-color: #1f4b99;
   background: #eef7fb;
 }
 

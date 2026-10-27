@@ -25,7 +25,9 @@ export interface SubtitleFontOption {
   label: string;
   fileName: string;
   fontFamily: string;
-  url: string;
+  /** 项目内字体。系统字体不打包，预览走 local()，导出从系统字体目录读取。 */
+  url?: string;
+  localFamilies?: string[];
 }
 
 export const SUBTITLE_FONT_OPTIONS: SubtitleFontOption[] = [
@@ -35,6 +37,7 @@ export const SUBTITLE_FONT_OPTIONS: SubtitleFontOption[] = [
     fileName: "MSYH.TTC",
     fontFamily: "subtitle-font-msyh",
     url: msyhFontUrl,
+    localFamilies: ["Microsoft YaHei", "微软雅黑"],
   },
   {
     id: "msyhbd",
@@ -42,6 +45,56 @@ export const SUBTITLE_FONT_OPTIONS: SubtitleFontOption[] = [
     fileName: "MSYHBD.TTC",
     fontFamily: "subtitle-font-msyhbd",
     url: msyhbdFontUrl,
+    localFamilies: ["Microsoft YaHei Bold", "微软雅黑 Bold"],
+  },
+  {
+    id: "msyhl",
+    label: "微软雅黑（细体）",
+    fileName: "msyhl.ttc",
+    fontFamily: "subtitle-font-msyhl",
+    localFamilies: ["Microsoft YaHei Light", "微软雅黑 Light"],
+  },
+  {
+    id: "simhei",
+    label: "黑体",
+    fileName: "simhei.ttf",
+    fontFamily: "subtitle-font-simhei",
+    localFamilies: ["SimHei", "黑体"],
+  },
+  {
+    id: "simsun",
+    label: "宋体",
+    fileName: "simsun.ttc",
+    fontFamily: "subtitle-font-simsun",
+    localFamilies: ["SimSun", "宋体"],
+  },
+  {
+    id: "simkai",
+    label: "楷体",
+    fileName: "simkai.ttf",
+    fontFamily: "subtitle-font-simkai",
+    localFamilies: ["KaiTi", "楷体"],
+  },
+  {
+    id: "simfang",
+    label: "仿宋",
+    fileName: "simfang.ttf",
+    fontFamily: "subtitle-font-simfang",
+    localFamilies: ["FangSong", "仿宋"],
+  },
+  {
+    id: "dengxian",
+    label: "等线",
+    fileName: "Deng.ttf",
+    fontFamily: "subtitle-font-dengxian",
+    localFamilies: ["DengXian", "等线"],
+  },
+  {
+    id: "dengxian-bold",
+    label: "等线（粗体）",
+    fileName: "Dengb.ttf",
+    fontFamily: "subtitle-font-dengxian-bold",
+    localFamilies: ["DengXian Bold", "等线 Bold"],
   },
   {
     id: "simyou",
@@ -49,8 +102,18 @@ export const SUBTITLE_FONT_OPTIONS: SubtitleFontOption[] = [
     fileName: "SIMYOU.TTF",
     fontFamily: "subtitle-font-simyou",
     url: simyouFontUrl,
+    localFamilies: ["YouYuan", "幼圆"],
   },
 ];
+
+export function subtitleFontFaceCss(font: SubtitleFontOption): string {
+  const sources = [
+    font.url ? `url('${font.url}')` : "",
+    ...(font.localFamilies ?? []).map((name) => `local('${name}')`),
+  ].filter(Boolean);
+
+  return `@font-face { font-family: '${font.fontFamily}'; src: ${sources.join(", ")}; font-display: swap; }`;
+}
 
 /**
  * 默认字体 ID，新用户首次打开字幕样式时会选中这一项

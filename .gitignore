@@ -5,5 +5,8 @@ dist
 *.log
 *.local
 *.tsbuildinfo
+*.wav
+*.npy
+*.mp4
 .DS_Store
 Thumbs.db

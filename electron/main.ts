@@ -167,9 +167,31 @@ async function submitDedicatedLipSyncTask(
 async function requireMoarkAccount(): Promise<MoarkAccountStore> {
   const account = await loadMoarkAccount();
   if (!account.apiKey.trim()) {
-    throw new Error("请先在右上角【配置中心】完成模力方舟授权登录");
+    throw new Error("请先在右上角点击【登录】完成模力方舟授权");
   }
   return account;
+}
+
+function describeExtractFailure(error: unknown): Error {
+  if (!(error instanceof Error)) {
+    return new Error("文案提取失败");
+  }
+
+  if (error.message !== "fetch failed") {
+    return error;
+  }
+
+  const cause = error.cause;
+  const causeText = cause instanceof Error ? cause.message : "";
+  const host = causeText.match(/attempted address:\s*([^,\s]+)/)?.[1];
+
+  if (host) {
+    return new Error(`网络请求失败（${host}）`);
+  }
+
+  return new Error(
+    causeText ? `网络请求失败：${causeText}` : "网络请求失败，请检查网络后重试",
+  );
 }
 
 async function extractDouyinCopy(
@@ -195,6 +217,8 @@ async function extractDouyinCopy(
       controller.signal,
       { apiKey: account.apiKey },
     );
+  } catch (error) {
+    throw describeExtractFailure(error);
   } finally {
     if (douyinExtractionControllers.get(webContentsId) === controller) {
       douyinExtractionControllers.delete(webContentsId);
@@ -431,6 +455,54 @@ async function cacheSynthesizedAudio(
   return `local-audio://synthesized/${encodeURIComponent(fileName)}`;
 }
 
+function clampSpeechSpeed(value: number | undefined): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.min(2, Math.max(0.5, Math.round(parsed * 10) / 10));
+}
+
+/**
+ * IndexTTS-2 接口本身不接受语速。下载完成后用 ffmpeg 改变时长，1 为原速，小于 1 更慢。
+ */
+async function applySpeechSpeed(
+  localUrl: string,
+  speed: number | undefined,
+): Promise<string> {
+  const paced = clampSpeechSpeed(speed);
+  if (Math.abs(paced - 1) < 0.05) return localUrl;
+  if (!localUrl.startsWith("local-audio://synthesized/")) return localUrl;
+
+  const ffmpeg = resolveFfmpegPath();
+  if (!ffmpeg) return localUrl;
+
+  const requestUrl = new URL(localUrl);
+  const fileName = basename(
+    decodeURIComponent(requestUrl.pathname.replace(/^\/+/, "")),
+  );
+  if (!fileName) return localUrl;
+
+  const synthesizedDir = join(
+    app.getPath("temp"),
+    "free-super-agent",
+    "synthesized-audio",
+  );
+  const inputPath = join(synthesizedDir, fileName);
+  const outputName = `${Date.now()}-${paced.toFixed(1).replace(".", "_")}${extname(fileName) || ".mp3"}`;
+  const outputPath = join(synthesizedDir, outputName);
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  await promisify(execFile)(ffmpeg, [
+    "-y",
+    "-i",
+    inputPath,
+    "-filter:a",
+    `atempo=${paced.toFixed(1)}`,
+    "-vn",
+    outputPath,
+  ]);
+  return `local-audio://synthesized/${encodeURIComponent(outputName)}`;
+}
+
 async function recognizeSubtitles(
   webContentsId: number,
   audioUrl: string,
@@ -502,9 +574,19 @@ function createMainWindow(): void {
     minWidth: 900,
     minHeight: 600,
     show: false,
-    title: "Free Super Agent",
-    backgroundColor: "#f6f7fb",
+    title: "超级IP智能体",
+    backgroundColor: "#eef2f7",
     autoHideMenuBar: true,
+    ...(process.platform === "win32"
+      ? {
+          titleBarStyle: "hidden" as const,
+          titleBarOverlay: {
+            color: "#f4f7fb",
+            symbolColor: "#29435f",
+            height: 75,
+          },
+        }
+      : {}),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -515,6 +597,9 @@ function createMainWindow(): void {
 
   // 隐藏菜单栏（File、Edit、View、Window 等）
   Menu.setApplicationMenu(null);
+  mainWindow.on("page-title-updated", (event) => {
+    event.preventDefault();
+  });
 
   // 页面加载完成后最大化再显示，避免出现先小窗再放大的闪烁
   mainWindow.once("ready-to-show", () => {
@@ -529,7 +614,6 @@ function createMainWindow(): void {
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
-    mainWindow.webContents.openDevTools({ mode: "detach" });
     return;
   }
 
@@ -768,7 +852,10 @@ app.whenReady().then(() => {
   );
   ipcMain.handle(
     "voice-moark:synthesize",
-    async (event, payload: { text: string; voiceId: string }) => {
+    async (
+      event,
+      payload: { text: string; voiceId: string; speechSpeed?: number },
+    ) => {
       const existingController = moarkSynthesisControllers.get(event.sender.id);
       if (existingController) {
         existingController.abort();
@@ -794,7 +881,8 @@ app.whenReady().then(() => {
           result.audioUrl,
           controller.signal,
         );
-        return { audioUrl: localUrl };
+        const pacedUrl = await applySpeechSpeed(localUrl, payload.speechSpeed);
+        return { audioUrl: pacedUrl };
       } finally {
         if (moarkSynthesisControllers.get(event.sender.id) === controller) {
           moarkSynthesisControllers.delete(event.sender.id);
@@ -905,11 +993,72 @@ app.whenReady().then(() => {
       return { success: true, filePath: result.filePath };
     },
   );
+function sanitizeExportFolderName(name: string): string {
+  const cleaned = name
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
+    .replace(/^\.+/, "")
+    .trim()
+    .replace(/[. ]+$/g, "")
+    .slice(0, 80);
+  return cleaned || "渲染导出";
+}
+
+function resolveExportAudioPath(audioUrl: string): string | null {
+  const trimmed = audioUrl.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("local-audio://")) {
+    const requestUrl = new URL(trimmed);
+    const fileName = basename(
+      decodeURIComponent(requestUrl.pathname.replace(/^\/+/, "")),
+    );
+    if (!fileName) return null;
+    if (requestUrl.hostname === "synthesized") {
+      return join(
+        app.getPath("temp"),
+        "free-super-agent",
+        "synthesized-audio",
+        fileName,
+      );
+    }
+    if (requestUrl.hostname === "moark-voices") {
+      return join(app.getPath("userData"), "moark-voices", fileName);
+    }
+    return null;
+  }
+
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return null;
+}
+
+  ipcMain.handle("dialog:select-directory", async (event) => {
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const dialogOptions = {
+      title: "选择默认导出位置",
+      defaultPath: app.getPath("downloads"),
+      properties: ["openDirectory", "createDirectory"] as Array<
+        "openDirectory" | "createDirectory"
+      >,
+    };
+    const result = parent
+      ? await dialog.showOpenDialog(parent, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions);
+    if (result.canceled || !result.filePaths.length) {
+      return null;
+    }
+    return result.filePaths[0];
+  });
+
   /**
-   * 选择输出目录，在里面新建子目录 渲染导出_<时间戳>，最多写入 3 个文件：
-   *   1. 对口型原视频（sourceVideoUrl，始终导出）
-   *   2. 成品视频（videoPayload，配置了字幕或画中画时才渲染导出）
-   *   3. 封面图（coverBase64，填写了封面标题时才导出）
+   * 按页面配置的导出位置和子文件夹名直接写入，不再弹出目录选择：
+   *   1. 对口型原视频
+   *   2. 成品视频（配置了字幕或画中画时）
+   *   3. 封面图（填写了封面标题时）
+   *   4. 文案提取.txt（提取文案）
+   *   5. 文案创作.txt（创作文案）
+   *   6. 克隆声音
    */
   ipcMain.handle(
     "video-render:export-all",
@@ -920,23 +1069,38 @@ app.whenReady().then(() => {
         videoPayload?: VideoRenderPayload;
         coverBase64?: string;
         coverFileName?: string;
+        folderName?: string;
+        exportDir?: string;
+        extractedCopy?: string;
+        createdCopy?: string;
+        audioUrl?: string;
       },
     ) => {
-      const folderResult = await dialog.showOpenDialog({
-        title: "选择导出目录",
-        properties: ["openDirectory", "createDirectory"],
-      });
-      if (folderResult.canceled || !folderResult.filePaths.length) {
-        return { success: false, canceled: true };
-      }
-
       const {
         copyFile: copyFileFs,
         writeFile: wf,
         mkdir: mkdirFs,
+        stat: statFs,
       } = await import("node:fs/promises");
+      const parentDir = options.exportDir?.trim() || app.getPath("downloads");
+      try {
+        await mkdirFs(parentDir, { recursive: true });
+        const info = await statFs(parentDir);
+        if (!info.isDirectory()) {
+          return { success: false, error: "导出位置不是文件夹" };
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "无法使用这个导出位置",
+        };
+      }
+
       const ts = Date.now();
-      const subDir = join(folderResult.filePaths[0], `渲染导出_${ts}`);
+      const subDir = join(
+        parentDir,
+        `${sanitizeExportFolderName(options.folderName ?? "")}_${ts}`,
+      );
       await mkdirFs(subDir, { recursive: true });
 
       const results: {
@@ -985,6 +1149,31 @@ app.whenReady().then(() => {
         );
         await wf(coverPath, Buffer.from(base64, "base64"));
         results.cover = coverPath;
+      }
+
+      const extracted = options.extractedCopy?.trim() ?? "";
+      const created = options.createdCopy?.trim() ?? "";
+      if (extracted) {
+        await wf(join(subDir, "文案提取.txt"), extracted, "utf8");
+      }
+      if (created) {
+        await wf(join(subDir, "文案创作.txt"), created, "utf8");
+      }
+
+      const audioSource = resolveExportAudioPath(options.audioUrl ?? "");
+      if (audioSource) {
+        try {
+          const { access } = await import("node:fs/promises");
+          await access(audioSource);
+          const audioExt = extname(audioSource) || ".mp3";
+          const audioPath = join(subDir, `克隆声音${audioExt}`);
+          await copyFileFs(audioSource, audioPath);
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : "导出克隆声音失败",
+          };
+        }
       }
 
       return { success: true, outputDir: subDir, ...results };

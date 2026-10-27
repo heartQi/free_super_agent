@@ -61,6 +61,7 @@ declare global {
 
       // 视频渲染 + 导出
       exportAll: (options: unknown) => Promise<unknown>;
+      selectDirectory: () => Promise<string | null>;
       selectAudioFile: () => Promise<string | null>;
       selectVideoFile: () => Promise<string | null>;
       selectVideoRenderOutput: () => Promise<string | null>;

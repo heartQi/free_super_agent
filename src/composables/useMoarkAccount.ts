@@ -185,7 +185,7 @@ function useImpl() {
   function ensureReady(): boolean {
     if (isReady.value) return true;
     openConfigCenter();
-    ElMessage.warning("请先在【配置中心】完成授权登录");
+    ElMessage.warning("请先点击【登录】完成授权");
     return false;
   }
 
@@ -198,8 +198,8 @@ function useImpl() {
     openConfigCenter();
     ElMessage.warning(
       loggedIn.value
-        ? "请先在【配置中心】完成授权登录"
-        : "登录态已过期，请在【配置中心】重新授权登录后再合成语音",
+        ? "请先点击【登录】完成授权"
+        : "登录态已过期，请重新登录后再合成语音",
     );
     return false;
   }
@@ -211,7 +211,7 @@ function useImpl() {
   function handleAuthExpired(): void {
     void refreshStatus();
     openConfigCenter();
-    ElMessage.error("授权已失效，请在【配置中心】重新授权登录");
+    ElMessage.error("授权已失效，请重新登录");
   }
 
   void refreshStatus();

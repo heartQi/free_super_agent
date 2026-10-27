@@ -47,7 +47,7 @@ import { ElIcon } from 'element-plus'
 }
 
 .app-footer a:hover {
-  color: #1e5f99;
+  color: #1f4b99;
 }
 
 .footer-separator {

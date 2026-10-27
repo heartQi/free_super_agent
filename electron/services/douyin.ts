@@ -129,7 +129,19 @@ export async function getVideoId(
       throw error;
     }
 
-    throw new Error("抖音视频ID提取失败");
+    if (
+      error instanceof Error &&
+      error.message &&
+      error.message !== "fetch failed"
+    ) {
+      throw error;
+    }
+
+    const cause = error instanceof Error ? error.cause : undefined;
+    const causeText = cause instanceof Error ? cause.message : "";
+    throw new Error(
+      causeText ? `抖音视频ID提取失败：${causeText}` : "抖音视频ID提取失败",
+    );
   }
 }
 

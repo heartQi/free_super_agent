@@ -1,10 +1,12 @@
 import { ElMessage } from "element-plus";
-import { computed, onUnmounted, ref } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { useLipSyncRuntime } from "@/composables/lip-sync-runtime/useLipSyncRuntime";
 import {
   useMoarkAccount,
   isMoarkAuthError,
 } from "@/composables/useMoarkAccount";
+import { useWorkflowState } from "@/composables/useWorkflowState";
+import { alignSpokenSentences } from "@/lib/subtitle-layout";
 import type {
   SubtitleRecognitionResult,
   SubtitleSegment,
@@ -45,6 +47,7 @@ let sharedSubtitleRecognitionState: ReturnType<
 function useSubtitleRecognitionImpl() {
   const lipSyncState = useLipSyncRuntime();
   const { ensureReady, handleAuthExpired } = useMoarkAccount();
+  const { createdCopyText } = useWorkflowState();
 
   const isRecognizing = ref(false);
   const subtitleTaskStatus = ref("未开始");
@@ -103,6 +106,27 @@ function useSubtitleRecognitionImpl() {
       .map((item) => item.text.trim())
       .filter(Boolean)
       .join("");
+  }
+
+  function syncSubtitlesToCopy(): void {
+    if (!createdCopyText.value.trim() || subtitleList.value.length === 0) {
+      return;
+    }
+    const aligned = alignSpokenSentences(
+      createdCopyText.value,
+      subtitleList.value.map((item) => ({
+        start: item.start,
+        end: item.end,
+        text: item.text,
+      })),
+    );
+    subtitleList.value = aligned.map((item, index) => ({
+      id: `segment-${index + 1}`,
+      start: item.start,
+      end: item.end,
+      text: item.text,
+    }));
+    subtitleMergedText.value = formatSubtitlesText(subtitleList.value);
   }
 
   function startSubtitleTimer(): void {
@@ -182,6 +206,7 @@ function useSubtitleRecognitionImpl() {
         end: item.end,
         text: item.text,
       }));
+      syncSubtitlesToCopy();
       subtitleMergedText.value = formatSubtitlesText(subtitleList.value);
       subtitleRequestId.value = result.requestId;
       subtitleSrt.value = result.srt;
@@ -232,6 +257,10 @@ function useSubtitleRecognitionImpl() {
   } catch {
     // ignore
   }
+
+  watch(createdCopyText, () => {
+    syncSubtitlesToCopy();
+  });
 
   onUnmounted(() => {
     stopSubtitleTimer();

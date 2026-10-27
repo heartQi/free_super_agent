@@ -14,7 +14,7 @@
  * 完全独立于其他 provider，删除时整个目录可直接移除。
  */
 import { ElMessage } from "element-plus";
-import { computed, ref, onMounted, onUnmounted } from "vue";
+import { computed, ref, onMounted, onUnmounted, watch } from "vue";
 import { useWorkflowState } from "@/composables/useWorkflowState";
 import { useVoiceCloneActive } from "@/composables/useVoiceClone";
 import {
@@ -74,6 +74,29 @@ function useVoiceCloneMoarkImpl() {
   const isVoiceSynthesisCancelled = ref(false);
   const synthesisElapsedMs = ref(0);
   const synthesizedAudioUrl = ref("");
+  const speechSpeedStorageKey = "free-super-agent.speech-speed";
+  const speechSpeed = ref(1);
+
+  function clampSpeechSpeed(value: number): number {
+    if (!Number.isFinite(value)) return 1;
+    return Math.min(2, Math.max(0.5, Math.round(value * 10) / 10));
+  }
+
+  try {
+    const stored = window.localStorage.getItem(speechSpeedStorageKey);
+    if (stored) speechSpeed.value = clampSpeechSpeed(Number(stored));
+  } catch {
+    speechSpeed.value = 1;
+  }
+
+  watch(speechSpeed, (value) => {
+    const next = clampSpeechSpeed(value);
+    if (next !== value) {
+      speechSpeed.value = next;
+      return;
+    }
+    window.localStorage.setItem(speechSpeedStorageKey, String(next));
+  });
   let synthesisStartedAt = 0;
   let synthesisTimer: number | undefined;
 
@@ -210,6 +233,7 @@ function useVoiceCloneMoarkImpl() {
       const result = (await window.desktopApi.synthesizeMoarkVoice({
         text: createdCopyText.value,
         voiceId: selectedVoice.value.id,
+        speechSpeed: speechSpeed.value,
       })) as { audioUrl?: string };
 
       if (isVoiceSynthesisCancelled.value) return;
@@ -267,6 +291,7 @@ function useVoiceCloneMoarkImpl() {
     isSynthesizingVoice,
     synthesisElapsedText,
     synthesizedAudioUrl,
+    speechSpeed,
     refreshVoices,
     saveVoice,
     startEditVoice,

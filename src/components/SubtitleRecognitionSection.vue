@@ -265,8 +265,8 @@ watch(
 }
 
 .subtitle-text-input:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .empty-subtitle-list {

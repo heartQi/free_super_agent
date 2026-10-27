@@ -30,6 +30,7 @@ const {
   isSynthesizingVoice,
   synthesisElapsedText,
   synthesizedAudioUrl,
+  speechSpeed,
   voiceName,
   editingVoiceId,
   editingVoiceName,
@@ -268,6 +269,19 @@ onUnmounted(() => {
       </div>
     </section>
 
+    <label class="speech-speed-row">
+      <span class="voice-select-title">语速</span>
+      <input
+        v-model.number="speechSpeed"
+        class="speech-speed-range"
+        type="range"
+        min="0.5"
+        max="2"
+        step="0.1"
+      />
+      <span class="speech-speed-value">{{ speechSpeed.toFixed(1) }}</span>
+    </label>
+
     <section class="voice-result-panel">
       <div class="result-title-row">
         <h3>语音预览</h3>
@@ -383,6 +397,21 @@ onUnmounted(() => {
 .voice-select-title-row { display: flex; align-items: center; justify-content: space-between; }
 .voice-select-title { color: #334155; font-size: 12px; font-weight: 700; }
 
+.speech-speed-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.speech-speed-range { width: 100%; accent-color: #1f4b99; }
+.speech-speed-value {
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+}
+
 .voice-select-controls {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 34px auto;
@@ -395,13 +424,13 @@ onUnmounted(() => {
   border: 1px solid #cbd5e1; border-radius: 6px;
   color: #172033; background: #ffffff; outline: none;
 }
-.voice-select-input:focus { border-color: #2a6f97; box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12); }
+.voice-select-input:focus { border-color: #1f4b99; box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12); }
 
 .icon-action-button {
   width: 34px; height: 34px; display: inline-grid; place-items: center;
   border: 1px solid #cbd5e1; border-radius: 6px; color: #41546b; background: #ffffff;
 }
-.icon-action-button:hover:not(:disabled) { color: #2a6f97; background: #f5f8fb; }
+.icon-action-button:hover:not(:disabled) { color: #1f4b99; background: #f5f8fb; }
 .icon-action-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .icon-action-button svg { width: 16px; height: 16px; }
 .icon-action-button.danger:hover:not(:disabled) { color: #b42318; }
@@ -421,7 +450,7 @@ onUnmounted(() => {
   white-space: nowrap;
   cursor: pointer;
 }
-.voice-manage-button:hover { color: #2a6f97; background: #f5f8fb; }
+.voice-manage-button:hover { color: #1f4b99; background: #f5f8fb; }
 .voice-manage-button svg { width: 14px; height: 14px; color: #9aa4b2; flex: 0 0 auto; }
 
 .tool-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, auto); gap: 8px; }
@@ -477,7 +506,7 @@ onUnmounted(() => {
 .loading-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: #ffffff; z-index: 10; }
 .loading-card { display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .loading-card p { margin: 0; color: #64748b; font-size: 13px; }
-.loading-spinner { width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top-color: #2a6f97; border-radius: 50%; animation: spin 0.8s linear infinite; }
+.loading-spinner { width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top-color: #1f4b99; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── 登录遮罩 ── */
@@ -502,7 +531,7 @@ onUnmounted(() => {
 .panel-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .panel-title-row h3, .voice-create-panel h3 { margin: 0; color: #172033; font-size: 14px; }
 
-.text-link-button { padding: 0; border: 0; color: #2a6f97; background: transparent; font-size: 12px; font-weight: 700; cursor: pointer; }
+.text-link-button { padding: 0; border: 0; color: #1f4b99; background: transparent; font-size: 12px; font-weight: 700; cursor: pointer; }
 
 .voice-list { display: grid; gap: 10px; }
 
@@ -520,10 +549,10 @@ onUnmounted(() => {
 .voice-item-actions { display: inline-flex; gap: 6px; }
 
 .voice-progress-track { position: absolute; right: 0; bottom: 0; left: 0; height: 3px; overflow: hidden; background: transparent; }
-.voice-progress-value { height: 100%; border-radius: 999px; background: #2a6f97; transition: width 0.12s linear; }
+.voice-progress-value { height: 100%; border-radius: 999px; background: #1f4b99; transition: width 0.12s linear; }
 
 .small-button { height: 30px; padding: 0 10px; border-radius: 6px; font-size: 12px; font-weight: 700; }
-.small-button.primary { border: 1px solid #2a6f97; color: #ffffff; background: #2a6f97; }
+.small-button.primary { border: 1px solid #1f4b99; color: #ffffff; background: #1f4b99; }
 
 .empty-list {
   min-height: 80px; display: grid; place-items: center;
@@ -535,7 +564,7 @@ onUnmounted(() => {
 .tool-field { display: grid; gap: 6px; }
 .tool-field > span { color: #334155; font-size: 12px; font-weight: 700; }
 .tool-field input { width: 100%; height: 34px; padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 6px; color: #172033; background: #ffffff; font-size: 13px; outline: none; }
-.tool-field input:focus { border-color: #2a6f97; box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12); }
+.tool-field input:focus { border-color: #1f4b99; box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12); }
 .voice-name-input { font-size: 12px; }
 
 .read-text { padding: 10px; border: 1px solid #e1e7ef; border-radius: 6px; background: #f8fafc; }
@@ -557,10 +586,10 @@ onUnmounted(() => {
 
 .upload-voice-button {
   height: 34px; display: grid; place-items: center;
-  border: 1px dashed #9bb1c8; border-radius: 6px; color: #2a6f97; background: #f8fbfd;
+  border: 1px dashed #9bb1c8; border-radius: 6px; color: #1f4b99; background: #f8fbfd;
   font-size: 13px; font-weight: 700; cursor: pointer;
 }
-.upload-voice-button:hover { border-color: #2a6f97; background: #eef7fb; }
+.upload-voice-button:hover { border-color: #1f4b99; background: #eef7fb; }
 
 .upload-tip { margin: -4px 0 0; color: #718096; font-size: 12px; line-height: 1.4; }
 

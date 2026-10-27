@@ -10,11 +10,16 @@ import {
   DEFAULT_SUBTITLE_FONT_ID,
   SUBTITLE_FONT_OPTIONS,
   getSubtitleFontOption,
+  subtitleFontFaceCss,
 } from "@/config/subtitle-fonts";
 import {
   SUBTITLE_STYLE_PRESETS,
   type SubtitleStylePreset,
 } from "@/config/subtitle-style-presets";
+import {
+  displaySubtitleCues,
+  type SubtitleBreakMode,
+} from "@/lib/subtitle-layout";
 
 const {
   effectiveVideoSourceUrl,
@@ -52,6 +57,22 @@ const subtitleFontSize = ref(subtitleActualFontSize);
 const subtitleColor = ref("#ffffff");
 const subtitleStrokeSize = ref(1);
 const subtitleStrokeColor = ref("#000000");
+const subtitleMaxChars = ref(14);
+const subtitleBreakMode = ref<SubtitleBreakMode>("sentence");
+
+function clampSubtitleFontSize(): void {
+  const value = Number(subtitleFontSize.value);
+  subtitleFontSize.value = Number.isFinite(value)
+    ? Math.min(64, Math.max(10, Math.round(value)))
+    : 10;
+}
+
+function clampSubtitleMaxChars(): void {
+  const value = Number(subtitleMaxChars.value);
+  subtitleMaxChars.value = Number.isFinite(value)
+    ? Math.min(24, Math.max(8, Math.round(value)))
+    : 14;
+}
 // 选中字体的 ID（持久化到 localStorage），渲染时再映射到对应的 fontFamily
 const selectedFontId = ref(DEFAULT_SUBTITLE_FONT_ID);
 const isStyleModalOpen = ref(false);
@@ -84,33 +105,6 @@ function applyStylePreset(preset: SubtitleStylePreset): void {
   subtitleStrokeSize.value = preset.strokeSize;
   subtitleStrokeColor.value = preset.strokeColor;
 }
-
-// 主页字幕样式入口右侧逐行展示当前样式：字体 / 字号 / 字色 / 描边
-interface SubtitleStyleSummaryRow {
-  label: string;
-  text?: string;
-  // 当存在 colors 时，按顺序渲染色块；最后一项可能跟着辅助文字（如描边粗细）
-  colors?: string[];
-}
-
-const subtitleStyleSummaryRows = computed<SubtitleStyleSummaryRow[]>(() => {
-  const rows: SubtitleStyleSummaryRow[] = [];
-  rows.push({ label: "字体", text: selectedFont.value.label });
-  rows.push({ label: "字号", text: `${subtitleFontSize.value}px` });
-  rows.push({ label: "字色", colors: [subtitleColor.value] });
-
-  if (subtitleStrokeSize.value > 0) {
-    rows.push({
-      label: "描边",
-      text: `${subtitleStrokeSize.value.toFixed(1)}px`,
-      colors: [subtitleStrokeColor.value],
-    });
-  } else {
-    rows.push({ label: "描边", text: "无" });
-  }
-
-  return rows;
-});
 
 // === 画中画入口相关 ===
 const { assets: pipAssets, openPipModal } = usePictureInPicture();
@@ -206,15 +200,19 @@ const previewFallbackSubtitleText = "预设字幕参考文字";
 // 根据当前播放时间匹配字幕段落；未匹配到时回退到预设文字
 const previewSubtitleText = computed(() => {
   const time = previewCurrentTime.value;
-  const matched = subtitleList.value.find(
-    (item) => time >= item.start && time <= item.end,
+  const pages = displaySubtitleCues(
+    subtitleList.value.map((item) => ({
+      start: item.start,
+      end: item.end,
+      text: item.text,
+    })),
   );
-
-  if (matched) {
-    return matched.text;
-  }
-
-  return previewFallbackSubtitleText;
+  const page = pages.find((item) => time >= item.start && time <= item.end);
+  if (page?.text) return page.text;
+  const matched = subtitleList.value.some(
+    (item) => time >= item.start && time <= item.end && item.text.trim(),
+  );
+  return matched ? "" : previewFallbackSubtitleText;
 });
 
 // 当前命中的字幕段落 ID，便于在样式弹窗的字幕列表里高亮指示
@@ -312,6 +310,8 @@ onMounted(() => {
         fontName: string;
         strokeColor: string;
         strokeSize: number;
+        maxCharsPerLine: number;
+        breakMode: SubtitleBreakMode;
       }>;
 
       if (typeof parsedConfig.fontSize === "number") {
@@ -341,31 +341,44 @@ onMounted(() => {
           Math.max(0, parsedConfig.strokeSize),
         );
       }
+      if (typeof parsedConfig.maxCharsPerLine === "number") {
+        subtitleMaxChars.value = Math.min(
+          24,
+          Math.max(8, Math.round(parsedConfig.maxCharsPerLine)),
+        );
+      }
+      if (
+        parsedConfig.breakMode === "sentence" ||
+        parsedConfig.breakMode === "clause"
+      ) {
+        subtitleBreakMode.value = parsedConfig.breakMode;
+      }
     } catch {
       window.localStorage.removeItem(subtitleStyleStorageKey);
     }
   }
 
-  if (
-    !fontOptions.length ||
-    document.querySelector('style[data-subtitle-fonts="true"]')
-  ) {
+  // 一屏一句：旧配置里的「所有标点都断开」会把一整段叠在同一画面上
+  if (window.localStorage.getItem("free-super-agent.subtitle-one-sentence") !== "1") {
+    subtitleBreakMode.value = "sentence";
+    window.localStorage.setItem("free-super-agent.subtitle-one-sentence", "1");
+  }
+
+  if (!fontOptions.length) {
     return;
   }
 
-  const styleElement = document.createElement("style");
-  styleElement.dataset.subtitleFonts = "true";
+  let styleElement = document.querySelector(
+    'style[data-subtitle-fonts="true"]',
+  );
+  if (!(styleElement instanceof HTMLStyleElement)) {
+    styleElement = document.createElement("style");
+    styleElement.dataset.subtitleFonts = "true";
+    document.head.appendChild(styleElement);
+  }
   styleElement.textContent = fontOptions
-    .map(
-      (font) => `
-@font-face {
-  font-family: '${font.fontFamily}';
-  src: url('${font.url}');
-  font-display: swap;
-}`,
-    )
+    .map((font) => subtitleFontFaceCss(font))
     .join("\n");
-  document.head.appendChild(styleElement);
 });
 
 watch(
@@ -375,6 +388,8 @@ watch(
     selectedFontId,
     subtitleStrokeSize,
     subtitleStrokeColor,
+    subtitleMaxChars,
+    subtitleBreakMode,
   ],
   () => {
     window.localStorage.setItem(
@@ -385,6 +400,8 @@ watch(
         fontSize: subtitleFontSize.value,
         strokeColor: subtitleStrokeColor.value,
         strokeSize: subtitleStrokeSize.value,
+        maxCharsPerLine: subtitleMaxChars.value,
+        breakMode: subtitleBreakMode.value,
       }),
     );
   },
@@ -408,43 +425,53 @@ watch(
     <div class="column-body subtitle-tool">
       <SubtitleRecognitionSection />
 
-      <div
-        class="subtitle-style-entry"
-        :class="{ 'is-disabled': !hasRecognizedSubtitles }"
-      >
+      <div class="subtitle-style-entry">
         <button
           class="subtitle-style-icon-button"
           type="button"
           aria-label="字幕样式"
-          :title="hasRecognizedSubtitles ? '字幕样式' : '请先进行字幕识别'"
+          :title="hasRecognizedSubtitles ? '字幕样式预览' : '请先进行字幕识别后再预览'"
           :disabled="!hasRecognizedSubtitles"
           @click="handleOpenStyleModal"
         >
           <EditPen />
           <span>字幕样式</span>
         </button>
-        <div class="subtitle-style-summary" aria-label="当前字幕样式">
-          <div
-            v-for="row in subtitleStyleSummaryRows"
-            :key="row.label"
-            class="subtitle-style-summary-row"
-          >
-            <span class="subtitle-style-summary-label">{{ row.label }}</span>
-            <span class="subtitle-style-summary-value">
-              <template v-if="row.colors">
-                <span
-                  v-for="color in row.colors"
-                  :key="color"
-                  class="subtitle-style-summary-color"
-                  :style="{ backgroundColor: color }"
-                  :aria-label="color"
-                ></span>
-              </template>
-              <span v-if="row.text" class="subtitle-style-summary-text">{{
-                row.text
-              }}</span>
-            </span>
-          </div>
+        <div class="subtitle-style-summary subtitle-style-editor" aria-label="字幕样式配置">
+          <label>
+            <span>字体</span>
+            <select v-model="selectedFontId">
+              <option v-for="font in fontOptions" :key="font.id" :value="font.id">
+                {{ font.label }}
+              </option>
+            </select>
+          </label>
+          <label>
+            <span>字号</span>
+            <input
+              v-model.number="subtitleFontSize"
+              type="number"
+              min="10"
+              max="64"
+              step="1"
+              @change="clampSubtitleFontSize"
+            />
+          </label>
+          <label>
+            <span>字色</span>
+            <input v-model="subtitleColor" type="color" />
+          </label>
+          <label>
+            <span>每行最多字数</span>
+            <input
+              v-model.number="subtitleMaxChars"
+              type="number"
+              min="8"
+              max="24"
+              step="1"
+              @change="clampSubtitleMaxChars"
+            />
+          </label>
         </div>
       </div>
 
@@ -608,12 +635,52 @@ watch(
                       max="64"
                       step="1"
                     />
-                    <strong>{{ subtitleFontSize }}px</strong>
+                    <input
+                      v-model.number="subtitleFontSize"
+                      class="range-number"
+                      type="number"
+                      min="10"
+                      max="64"
+                      step="1"
+                      aria-label="字号"
+                      @change="clampSubtitleFontSize"
+                    />
                   </div>
                 </label>
 
                 <label class="style-field style-field-inline">
-                  <span>颜色</span>
+                  <span>每行最多字数</span>
+                  <div class="range-control">
+                    <input
+                      v-model.number="subtitleMaxChars"
+                      type="range"
+                      min="8"
+                      max="24"
+                      step="1"
+                    />
+                    <input
+                      v-model.number="subtitleMaxChars"
+                      class="range-number"
+                      type="number"
+                      min="8"
+                      max="24"
+                      step="1"
+                      aria-label="每行最多字数"
+                      @change="clampSubtitleMaxChars"
+                    />
+                  </div>
+                </label>
+
+                <label class="style-field style-field-inline">
+                  <span>断句</span>
+                  <select v-model="subtitleBreakMode">
+                    <option value="sentence">一屏一句（按句号）</option>
+                    <option value="clause">一屏一段（按标点）</option>
+                  </select>
+                </label>
+
+                <label class="style-field style-field-inline">
+                  <span>字色</span>
                   <div class="color-control">
                     <input v-model="subtitleColor" type="color" />
                     <span>{{ subtitleColor }}</span>
@@ -766,7 +833,7 @@ watch(
 
 .style-field-inline {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-columns: 96px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
 }
@@ -848,8 +915,8 @@ watch(
 }
 
 .url-input-row input[type="text"]:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .url-file-button {
@@ -869,8 +936,8 @@ watch(
 }
 
 .url-file-button:hover {
-  border-color: #2a6f97;
-  color: #2a6f97;
+  border-color: #1f4b99;
+  color: #1f4b99;
   background: #eef7fb;
 }
 
@@ -903,8 +970,8 @@ watch(
 .audio-url-field input:focus,
 .style-field select:focus,
 .field input:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .tool-actions {
@@ -1036,8 +1103,8 @@ watch(
 }
 
 .subtitle-text-input:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .empty-subtitle-list {
@@ -1088,8 +1155,8 @@ watch(
 }
 
 .subtitle-style-icon-button:hover {
-  border-color: #2a6f97;
-  color: #2a6f97;
+  border-color: #1f4b99;
+  color: #1f4b99;
   background: #f2f7fb;
 }
 
@@ -1101,9 +1168,47 @@ watch(
   cursor: not-allowed;
 }
 
-.subtitle-style-entry.is-disabled .subtitle-style-summary {
-  color: #94a3b8;
-  background: #f1f5f9;
+.subtitle-style-editor label {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 84px auto;
+  justify-content: start;
+  align-items: center;
+  gap: 6px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.subtitle-style-editor select,
+.subtitle-style-editor input[type="number"] {
+  height: 28px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #172033;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.subtitle-style-editor select {
+  width: 168px;
+}
+
+.subtitle-style-editor input[type="number"] {
+  width: 72px;
+}
+
+.subtitle-style-editor input[type="color"] {
+  width: 48px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
 }
 
 .subtitle-style-icon-button svg {
@@ -1119,7 +1224,7 @@ watch(
 .subtitle-style-summary {
   min-width: 0;
   display: grid;
-  grid-template-rows: repeat(4, 1fr);
+  grid-template-rows: repeat(5, 1fr);
   align-items: stretch;
   padding: 6px 10px;
   border: 1px solid #cbd5e1;
@@ -1130,6 +1235,13 @@ watch(
   cursor: default;
 }
 
+.subtitle-style-summary.subtitle-style-editor {
+  grid-template-rows: none;
+  align-content: center;
+  gap: 6px;
+  cursor: auto;
+}
+
 .subtitle-style-summary:hover {
   border-color: #cbd5e1;
 }
@@ -1137,7 +1249,7 @@ watch(
 .subtitle-style-summary-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
+  grid-template-columns: 56px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
 }
@@ -1189,12 +1301,23 @@ watch(
 }
 
 .range-control {
-  grid-template-columns: minmax(0, 1fr) 44px;
+  grid-template-columns: minmax(0, 1fr) 64px;
 }
 
 .range-control input {
   width: 100%;
   margin: 0;
+}
+
+.range-number {
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #172033;
+  background: #ffffff;
+  font-size: 12px;
+  text-align: center;
 }
 
 .range-control strong,
@@ -1252,10 +1375,13 @@ watch(
 
 .preview-subtitle {
   position: absolute;
-  right: 10px;
+  right: 12px;
   bottom: 20%;
-  left: 10px;
+  left: 12px;
   text-align: center;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.72);
   pointer-events: none;
 }
@@ -1348,8 +1474,8 @@ watch(
 }
 
 .style-preset-chip.is-active {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.22);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.22);
 }
 
 .style-preset-chip-icon {
@@ -1383,14 +1509,14 @@ watch(
 }
 
 .style-subtitle-row.is-active .subtitle-time {
-  border-color: #2a6f97;
+  border-color: #1f4b99;
   color: #ffffff;
-  background: #2a6f97;
+  background: #1f4b99;
 }
 
 .style-subtitle-row.is-active .subtitle-text-input {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .style-subtitle-empty {
@@ -1510,8 +1636,8 @@ watch(
 }
 
 .provider-select-field select:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .field select {
@@ -1551,7 +1677,7 @@ watch(
 }
 
 .config-tip a {
-  color: #2a6f97;
+  color: #1f4b99;
 }
 
 .modal-actions {

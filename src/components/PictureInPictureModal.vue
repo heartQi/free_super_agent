@@ -645,8 +645,8 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 }
 
 .pip-subtitle-toggle-all:hover {
-  border-color: #2a6f97;
-  color: #2a6f97;
+  border-color: #1f4b99;
+  color: #1f4b99;
 }
 
 .pip-subtitle-tip {
@@ -679,14 +679,14 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 }
 
 .pip-subtitle-row.is-active {
-  border-color: #2a6f97;
+  border-color: #1f4b99;
   background: #eef7fb;
 }
 
 .pip-subtitle-checkbox {
   width: 16px;
   height: 16px;
-  accent-color: #2a6f97;
+  accent-color: #1f4b99;
   cursor: pointer;
 }
 
@@ -719,7 +719,7 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
   padding: 0 6px;
   border-radius: 999px;
   color: #ffffff;
-  background: #2a6f97;
+  background: #1f4b99;
   font-size: 11px;
   font-weight: 700;
 }
@@ -839,7 +839,7 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 }
 
 .pip-ai-field-icon:hover {
-  color: #2a6f97;
+  color: #1f4b99;
   background: #eef7fb;
 }
 
@@ -913,8 +913,8 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 }
 
 .pip-ai-section-config:hover {
-  border-color: #2a6f97;
-  color: #2a6f97;
+  border-color: #1f4b99;
+  color: #1f4b99;
   background: #f2f7fb;
 }
 
@@ -1129,7 +1129,7 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 }
 
 .pip-history-item:hover {
-  border-color: #2a6f97;
+  border-color: #1f4b99;
   transform: translateY(-1px);
 }
 
@@ -1153,7 +1153,7 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 
 .pip-history-meta-kind {
   font-weight: 700;
-  color: #2a6f97;
+  color: #1f4b99;
 }
 
 .pip-history-remove {
@@ -1267,8 +1267,8 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 }
 
 .pip-ai-input:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .pip-ai-view-button {
@@ -1285,8 +1285,8 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 }
 
 .pip-ai-view-button:hover {
-  border-color: #2a6f97;
-  color: #2a6f97;
+  border-color: #1f4b99;
+  color: #1f4b99;
   background: #f2f7fb;
 }
 
@@ -1353,8 +1353,8 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 }
 
 .pip-model-config-modal .provider-select-field select:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .pip-model-config-modal .config-field {
@@ -1383,8 +1383,8 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 
 .pip-model-config-modal .config-field input:focus,
 .pip-model-config-modal .config-field select:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .pip-model-config-modal .config-tip {
@@ -1395,7 +1395,7 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 }
 
 .pip-model-config-modal .config-tip a {
-  color: #2a6f97;
+  color: #1f4b99;
 }
 
 .model-config-list {
@@ -1441,7 +1441,7 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 }
 
 .model-card-head .config-tip a {
-  color: #2a6f97;
+  color: #1f4b99;
   text-decoration: none;
 }
 
@@ -1475,8 +1475,8 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 
 .field input:focus,
 .field select:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
 }
 
 .pip-size-row {
@@ -1518,9 +1518,9 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 }
 
 .primary-button {
-  border: 1px solid #2a6f97;
+  border: 1px solid #1f4b99;
   color: #ffffff;
-  background: #2a6f97;
+  background: #1f4b99;
 }
 
 .primary-button:disabled {
@@ -1588,8 +1588,8 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 }
 
 .pip-prompt-reset:hover {
-  border-color: #2a6f97;
-  color: #2a6f97;
+  border-color: #1f4b99;
+  color: #1f4b99;
   background: #f2f7fb;
 }
 
@@ -1610,8 +1610,8 @@ function handleAssetVideoLoaded(asset: PipAsset, event: Event): void {
 }
 
 .pip-prompt-modal-textarea:focus {
-  border-color: #2a6f97;
-  box-shadow: 0 0 0 3px rgba(42, 111, 151, 0.12);
+  border-color: #1f4b99;
+  box-shadow: 0 0 0 3px rgba(31, 75, 153, 0.12);
   background: #ffffff;
 }
 </style>

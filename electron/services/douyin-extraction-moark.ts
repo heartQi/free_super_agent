@@ -8,6 +8,7 @@
  *   4. 上传音频文件到模力方舟 ASR 接口提取文案
  *
  * 接口：POST https://api.moark.com/v1/audio/transcriptions
+ * 国内账户的访问令牌只被 api.moark.com 接受。
  * 认证：Bearer API Key
  * 模型：SenseVoiceSmall
  *

@@ -82,6 +82,8 @@ const desktopApi = {
   // ===== 渲染导出（视频 + 封面统一输出到子目录） =====
   exportAll: (options: unknown): Promise<unknown> =>
     ipcRenderer.invoke("video-render:export-all", options),
+  selectDirectory: (): Promise<string | null> =>
+    ipcRenderer.invoke("dialog:select-directory"),
   // ===== 视频渲染（字幕 + 画中画烧制） =====
   selectAudioFile: (): Promise<string | null> =>
     ipcRenderer.invoke("dialog:select-audio-file"),

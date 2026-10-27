@@ -60,10 +60,26 @@ function useCopyCreationImpl() {
     }
   }
 
+  function readSubtitleMaxChars(): number {
+    try {
+      const stored = window.localStorage.getItem(
+        "free-super-agent.subtitle-style",
+      );
+      if (!stored) return 14;
+      const parsed = JSON.parse(stored) as { maxCharsPerLine?: number };
+      const value = Number(parsed.maxCharsPerLine);
+      if (!Number.isFinite(value)) return 14;
+      return Math.min(24, Math.max(8, Math.round(value)));
+    } catch {
+      return 14;
+    }
+  }
+
   function getPayload(sourceCopy: string): CopyCreationPayload {
     return {
       rewriteRequirements: rewriteRequirements.value,
       sourceCopy,
+      maxCharsPerLine: readSubtitleMaxChars(),
     };
   }
 
